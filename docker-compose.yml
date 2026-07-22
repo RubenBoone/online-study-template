@@ -1,0 +1,79 @@
+name: app-name
+
+services:
+  api:
+    build:
+      context: ./backend/
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      USE_SITE_SERVING: ${USE_SITE_SERVING}
+      OPENROUTER_KEY: ${OPENROUTER_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  postgres:
+    image: bitnami/postgresql:latest
+    env_file:
+      - .env
+    environment:
+      POSTGRESQL_USERNAME: ${POSTGRES_USER}
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRESQL_DATABASE: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/bitnami/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  frontend:
+    build:
+      context: ./frontend/
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        VITE_STUDY_MODE: ${VITE_STUDY_MODE}
+        VITE_STUDY_DEV_CHEAT: ${VITE_STUDY_DEV_CHEAT}
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      api:
+        condition: service_started
+
+  metrics:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      # These now pull securely from the .env file!
+      - GF_SERVER_DOMAIN=${SERVER_DOMAIN}
+      - GF_SERVER_ROOT_URL=https://${SERVER_DOMAIN}/monitoring/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SERVER_PROTOCOL=http
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    expose:
+      - "3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  postgres_data:
+  grafana_data:
